@@ -216,19 +216,23 @@ def handle_file_jenkins_command(ack, respond, command, client):
         excel_content = download_and_encode_file(excel_file['url_private'], token)
         json_content = download_and_encode_file(json_file['url_private'], token)
         
-        # Trigger Jenkins job
+        # Use correct parameter names
         params = {
             'INPUT_XLSX': excel_content,
             'SERVICE_ACCOUNT_JSON': json_content
         }
         
-        success = trigger_job_with_params(job_name, params)
+        # Send initial response
+        respond(f"🚀 Starting Jenkins job: {job_name} with uploaded files...")
         
-        if success:
-            respond(f"✅ Job {job_name} triggered with uploaded files!")
-        else:
-            respond(f"❌ Failed to trigger job {job_name}")
-            
+        # Get user ID for direct messages
+        user_id = command['user_id']
+        
+        # Use the same job runner as regular jobs to get Google Doc link
+        run_jenkins_job(job_name, params, lambda msg: client.chat_postMessage(
+            channel=user_id, text=msg
+        ))
+        
     except Exception as e:
         respond(f"Error: {str(e)}")
 
