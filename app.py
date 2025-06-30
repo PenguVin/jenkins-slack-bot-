@@ -1,9 +1,16 @@
 import os
 import re
 from flask import Flask, request
+import requests
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from dotenv import load_dotenv
+import base64
+from flask import render_template_string
+from requests.auth import HTTPBasicAuth
+
+
+
 from jenkins_utils import (
     get_all_jobs, get_job_parameters, trigger_job_with_params,
     wait_for_build_to_complete, get_last_build_console_output,
@@ -66,6 +73,15 @@ def handle_run_job(ack, body, respond):
         params = get_job_parameters(job_name)
         
         if params:
+            # Check if job has file parameters
+            has_file_params = any('File' in param.get('type', '') for param in params)
+            
+            if has_file_params:
+                respond(f"📁 This job requires file uploads. Use one of these options:\n" +
+                        f"• Upload files to this channel, then use: `/jenkins-file {job_name}`\n" +
+                        f"• Web upload: https://your-ngrok-url.ngrok.io/upload/{job_name}")
+                return
+
             # Show parameter form
             modal_blocks = [
                 {
@@ -162,6 +178,98 @@ def run_jenkins_job(job_name, params, respond_func):
             
     except Exception as e:
         respond_func(f"Error running job {job_name}: {str(e)}")
+
+# Add after existing imports
+def download_and_encode_file(file_url, token):
+    """Download file from Slack and encode to base64"""
+    headers = {'Authorization': f'Bearer {token}'}
+    response = requests.get(file_url, headers=headers)
+    return base64.b64encode(response.content).decode()
+
+# Add new command for file-based jobs
+@slack_app.command("/jenkins-file")
+def handle_file_jenkins_command(ack, respond, command, client):
+    ack()
+    
+    job_name = command['text'].strip()
+    if not job_name:
+        respond("Usage: `/jenkins-file <job_name>`")
+        return
+    
+    try:
+        # Get recent files from channel
+        channel_id = command['channel_id']
+        files_response = client.files_list(channel=channel_id, count=10)
+        files = files_response['files']
+        
+        if len(files) < 2:
+            respond("Please upload 2 files first (Excel + JSON), then use this command.")
+            return
+        
+        # Get the 2 most recent files
+        excel_file = files[0]  # Most recent
+        json_file = files[1]   # Second most recent
+        
+        # Download and encode files
+        token = os.environ.get("SLACK_BOT_TOKEN")
+        excel_content = download_and_encode_file(excel_file['url_private'], token)
+        json_content = download_and_encode_file(json_file['url_private'], token)
+        
+        # Trigger Jenkins job
+        params = {
+            'excel_file': excel_content,
+            'json_file': json_content
+        }
+        
+        success = trigger_job_with_params(job_name, params)
+        
+        if success:
+            respond(f"✅ Job {job_name} triggered with uploaded files!")
+        else:
+            respond(f"❌ Failed to trigger job {job_name}")
+            
+    except Exception as e:
+        respond(f"Error: {str(e)}")
+
+# Add file upload web interface
+@flask_app.route("/upload/<job_name>", methods=["GET", "POST"])
+def upload_files(job_name):
+    if request.method == "GET":
+        return render_template_string("""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Upload Files for {{job_name}}</title></head>
+        <body>
+            <h2>Upload Files for Jenkins Job: {{job_name}}</h2>
+            <form method="POST" enctype="multipart/form-data">
+                <p>Excel File: <input type="file" name="excel_file" accept=".xlsx,.xls" required></p>
+                <p>JSON File: <input type="file" name="json_file" accept=".json" required></p>
+                <p><button type="submit">Trigger Job</button></p>
+            </form>
+        </body>
+        </html>
+        """, job_name=job_name)
+    
+    try:
+        # Process uploaded files
+        excel_file = request.files['excel_file']
+        json_file = request.files['json_file']
+        
+        params = {
+            'excel_file': base64.b64encode(excel_file.read()).decode(),
+            'json_file': base64.b64encode(json_file.read()).decode()
+        }
+        
+        success = trigger_job_with_params(job_name, params)
+        
+        if success:
+            return f"<h2>✅ Job {job_name} triggered successfully!</h2>"
+        else:
+            return f"<h2>❌ Failed to trigger job {job_name}</h2>"
+            
+    except Exception as e:
+        return f"<h2>Error: {str(e)}</h2>"
+
 
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():

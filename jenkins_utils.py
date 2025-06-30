@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import time
 import re
+import base64
 
 load_dotenv()
 
@@ -39,25 +40,62 @@ def get_job_parameters(job_name):
         for item in source:
             if item.get('_class') == 'hudson.model.ParametersDefinitionProperty':
                 for param in item.get('parameterDefinitions', []):
+                    # Fix for file parameters - handle None defaultParameterValue
+                    default_param_value = param.get('defaultParameterValue')
+                    default_value = ''
+                    if default_param_value and isinstance(default_param_value, dict):
+                        default_value = default_param_value.get('value', '')
+                    
                     parameters.append({
                         'name': param['name'],
                         'type': param.get('type', 'StringParameterDefinition'),
                         'description': param.get('description', ''),
-                        'defaultValue': param.get('defaultParameterValue', {}).get('value', '')
+                        'defaultValue': default_value
                     })
     return parameters
-
 
 def trigger_job_with_params(job_name, params=None):
     headers = get_crumb()
     if params:
         url = f"{JENKINS_URL}/job/{job_name}/buildWithParameters"
-        res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
-                          headers=headers, data=params)
+        
+        # Handle file parameters - Jenkins expects multipart/form-data for files
+        files = {}
+        data = {}
+        
+        for key, value in params.items():
+            # Check if this looks like base64 encoded file content
+            if isinstance(value, str) and len(value) > 1000 and value.replace('+', '').replace('/', '').replace('=', '').isalnum():
+                # This is likely a base64 encoded file
+                try:
+                    file_content = base64.b64decode(value)
+                    files[key] = ('file', file_content)
+                except:
+                    # If base64 decode fails, treat as regular parameter
+                    data[key] = value
+            else:
+                data[key] = value
+        
+        if files:
+            # Use files parameter for multipart upload
+            res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
+                              headers=headers, data=data, files=files)
+        else:
+            # Regular form data
+            res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
+                              headers=headers, data=data)
     else:
         url = f"{JENKINS_URL}/job/{job_name}/build"
         res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), headers=headers)
+    
     return res.status_code == 201
+
+def download_and_encode_file(file_url, token):
+    """Download file from Slack and encode to base64"""
+    headers = {'Authorization': f'Bearer {token}'}
+    response = requests.get(file_url, headers=headers)
+    response.raise_for_status()
+    return base64.b64encode(response.content).decode()
 
 def get_last_build_console_output(job_name):
     url = f"{JENKINS_URL}/job/{job_name}/lastBuild/consoleText"
