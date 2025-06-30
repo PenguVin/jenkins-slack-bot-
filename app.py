@@ -14,8 +14,10 @@ from requests.auth import HTTPBasicAuth
 from jenkins_utils import (
     get_all_jobs, get_job_parameters, trigger_job_with_params,
     wait_for_build_to_complete, get_last_build_console_output,
-    extract_google_doc_link
+    extract_google_doc_link, wait_for_specific_build_to_complete,
+    get_specific_build_console_output
 )
+
 
 load_dotenv()
 
@@ -150,8 +152,43 @@ def handle_job_submission(ack, body, view):
         channel=channel_id, text=msg
     ))
 
+# def run_jenkins_job(job_name, params, respond_func):
+#     try:
+#         # Trigger job
+#         success = trigger_job_with_params(job_name, params)
+#         if not success:
+#             respond_func(f"Failed to trigger job: {job_name}")
+#             return
+        
+#         respond_func(f"Job {job_name} triggered successfully. Waiting for completion...")
+        
+#         # Wait for completion
+#         build_number = wait_for_build_to_complete(job_name)
+#         if not build_number:
+#             respond_func(f"Job {job_name} timed out or failed to complete.")
+#             return
+        
+#         # Get console output
+#         console_output = get_last_build_console_output(job_name)
+        
+#         # Extract Google Doc link
+#         doc_link = extract_google_doc_link(console_output)
+        
+#         if doc_link:
+#             respond_func(f"✅ Job {job_name} completed!\n🔗 Google Doc: {doc_link}")
+#         else:
+#             respond_func(f"✅ Job {job_name} completed, but no Google Doc link found in console output.")
+            
+#     except Exception as e:
+#         respond_func(f"Error running job {job_name}: {str(e)}")
+
 def run_jenkins_job(job_name, params, respond_func):
     try:
+        # Get current build number before triggering
+        current_builds_url = f"{os.getenv('JENKINS_URL')}/job/{job_name}/api/json"
+        response = requests.get(current_builds_url, auth=HTTPBasicAuth(os.getenv('JENKINS_USER'), os.getenv('JENKINS_API_TOKEN')))
+        current_build_number = response.json().get('nextBuildNumber', 1)
+        
         # Trigger job
         success = trigger_job_with_params(job_name, params)
         if not success:
@@ -160,14 +197,14 @@ def run_jenkins_job(job_name, params, respond_func):
         
         respond_func(f"Job {job_name} triggered successfully. Waiting for completion...")
         
-        # Wait for completion
-        build_number = wait_for_build_to_complete(job_name)
+        # Wait for the SPECIFIC build to complete
+        build_number = wait_for_specific_build_to_complete(job_name, current_build_number)
         if not build_number:
             respond_func(f"Job {job_name} timed out or failed to complete.")
             return
         
-        # Get console output
-        console_output = get_last_build_console_output(job_name)
+        # Get console output for the SPECIFIC build
+        console_output = get_specific_build_console_output(job_name, build_number)
         
         # Extract Google Doc link
         doc_link = extract_google_doc_link(console_output)
@@ -179,6 +216,7 @@ def run_jenkins_job(job_name, params, respond_func):
             
     except Exception as e:
         respond_func(f"Error running job {job_name}: {str(e)}")
+
 
 # Add after existing imports
 def download_and_encode_file(file_url, token):

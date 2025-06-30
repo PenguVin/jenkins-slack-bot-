@@ -120,3 +120,24 @@ def wait_for_build_to_complete(job_name, timeout=180, interval=5):
         time.sleep(interval)
     
     return None
+
+def wait_for_specific_build_to_complete(job_name, build_number, timeout=180, interval=5):
+    build_url = f"{JENKINS_URL}/job/{job_name}/{build_number}/api/json"
+    
+    for _ in range(int(timeout / interval)):
+        res = requests.get(build_url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
+        if res.status_code != 200:
+            time.sleep(interval)
+            continue
+        data = res.json()
+        if not data.get("building", True):
+            return build_number
+        time.sleep(interval)
+    
+    return None
+
+def get_specific_build_console_output(job_name, build_number):
+    url = f"{JENKINS_URL}/job/{job_name}/{build_number}/consoleText"
+    res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
+    return res.text
+
