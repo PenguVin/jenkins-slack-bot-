@@ -78,8 +78,9 @@ def handle_run_job(ack, body, respond):
             
             if has_file_params:
                 respond(f"📁 This job requires file uploads. Use one of these options:\n" +
-                        f"• Upload files to this channel, then use: `/jenkins-file {job_name}`\n" +
-                        f"• Web upload: https://your-ngrok-url.ngrok.io/upload/{job_name}")
+                f"• Upload files to this channel, then use: `/jenkins-file {job_name}`\n" +
+                f"• Web upload: https://db65-61-12-91-218.ngrok-free.app/upload/{job_name}")
+
                 return
 
             # Show parameter form
@@ -217,8 +218,8 @@ def handle_file_jenkins_command(ack, respond, command, client):
         
         # Trigger Jenkins job
         params = {
-            'excel_file': excel_content,
-            'json_file': json_content
+            'INPUT_XLSX': excel_content,
+            'SERVICE_ACCOUNT_JSON': json_content
         }
         
         success = trigger_job_with_params(job_name, params)
@@ -256,8 +257,8 @@ def upload_files(job_name):
         json_file = request.files['json_file']
         
         params = {
-            'excel_file': base64.b64encode(excel_file.read()).decode(),
-            'json_file': base64.b64encode(json_file.read()).decode()
+            'INPUT_XLSX': base64.b64encode(excel_file.read()).decode(),
+            'SERVICE_ACCOUNT_JSON': base64.b64encode(json_file.read()).decode()
         }
         
         success = trigger_job_with_params(job_name, params)
