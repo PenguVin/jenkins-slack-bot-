@@ -27,6 +27,41 @@ slack_app = App(
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
 )
 
+def is_date_parameter(param_name, param_description="", default_value=""):
+    """Check if parameter is a date parameter"""
+    date_indicators = ['date', 'time', 'day', 'month', 'year', 'yyyy-mm-dd', 'yyyy/mm/dd']
+    
+    if any(indicator in param_name.lower() for indicator in date_indicators):
+        return True
+    if any(indicator in param_description.lower() for indicator in date_indicators):
+        return True
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', str(default_value)):
+        return True
+    
+    return False
+
+def create_input_element(param):
+    """Create appropriate input element based on parameter type"""
+    if is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
+        element = {
+            "type": "datepicker",
+            "action_id": param['name'],
+            "placeholder": {"type": "plain_text", "text": "Select a date"}
+        }
+        
+        default_value = str(param.get('defaultValue', ''))
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', default_value):
+            element["initial_date"] = default_value
+        
+        return element
+    else:
+        return {
+            "type": "plain_text_input",
+            "action_id": param['name'],
+            "initial_value": str(param.get('defaultValue', ''))
+        }
+
+
 # Initialize Flask app
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(slack_app)
@@ -97,16 +132,13 @@ def handle_run_job(ack, body, respond):
                 modal_blocks.append({
                     "type": "input",
                     "block_id": f"param_{param['name']}",
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": param['name'],
-                        "initial_value": str(param.get('defaultValue', ''))
-                    },
+                    "element": create_input_element(param),
                     "label": {
                         "type": "plain_text",
                         "text": f"{param['name']} ({param['type']})"
                     }
                 })
+
             
             slack_app.client.views_open(
                 trigger_id=body["trigger_id"],
@@ -133,13 +165,23 @@ def handle_job_submission(ack, body, view):
     job_name = body["view"]["callback_id"].replace("submit_job_", "")
     
     # Extract parameters from form
+    # Extract parameters from form
     params = {}
     for block_id, block in view["state"]["values"].items():
         if block_id.startswith("param_"):
             param_name = block_id.replace("param_", "")
-            param_value = list(block.values())[0]["value"]
+            action_data = list(block.values())[0]
+            
+            # Handle both text input and datepicker
+            if "value" in action_data:
+                param_value = action_data["value"]  # Text input
+            elif "selected_date" in action_data:
+                param_value = action_data["selected_date"]  # Date picker
+            else:
+                param_value = ""
+            
             params[param_name] = param_value
-    
+
     # Send initial response
     channel_id = body["user"]["id"]
     slack_app.client.chat_postMessage(
@@ -151,36 +193,6 @@ def handle_job_submission(ack, body, view):
     run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(
         channel=channel_id, text=msg
     ))
-
-# def run_jenkins_job(job_name, params, respond_func):
-#     try:
-#         # Trigger job
-#         success = trigger_job_with_params(job_name, params)
-#         if not success:
-#             respond_func(f"Failed to trigger job: {job_name}")
-#             return
-        
-#         respond_func(f"Job {job_name} triggered successfully. Waiting for completion...")
-        
-#         # Wait for completion
-#         build_number = wait_for_build_to_complete(job_name)
-#         if not build_number:
-#             respond_func(f"Job {job_name} timed out or failed to complete.")
-#             return
-        
-#         # Get console output
-#         console_output = get_last_build_console_output(job_name)
-        
-#         # Extract Google Doc link
-#         doc_link = extract_google_doc_link(console_output)
-        
-#         if doc_link:
-#             respond_func(f"✅ Job {job_name} completed!\n🔗 Google Doc: {doc_link}")
-#         else:
-#             respond_func(f"✅ Job {job_name} completed, but no Google Doc link found in console output.")
-            
-#     except Exception as e:
-#         respond_func(f"Error running job {job_name}: {str(e)}")
 
 def run_jenkins_job(job_name, params, respond_func):
     try:
