@@ -6,14 +6,12 @@ from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from dotenv import load_dotenv
 import base64
-from flask import render_template_string
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, timedelta
 import calendar
 
 from jenkins_utils import (
     get_all_jobs, get_job_parameters, trigger_job_with_params,
-    wait_for_build_to_complete, get_last_build_console_output,
     extract_result_from_console, wait_for_specific_build_to_complete,
     get_specific_build_console_output
 )
@@ -40,26 +38,6 @@ def is_date_parameter(param_name, param_description="", default_value=""):
     
     return False
 
-# def create_input_element(param):
-#     """Create appropriate input element based on parameter type"""
-#     if is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
-#         element = {
-#             "type": "datepicker",
-#             "action_id": param['name'],
-#             "placeholder": {"type": "plain_text", "text": "Select a date"}
-#         }
-        
-#         default_value = str(param.get('defaultValue', ''))
-#         if re.match(r'^\d{4}-\d{2}-\d{2}$', default_value):
-#             element["initial_date"] = default_value
-        
-#         return element
-#     else:
-#         return {
-#             "type": "plain_text_input",
-#             "action_id": param['name'],
-#             "initial_value": str(param.get('defaultValue', ''))
-#         }
 
 #Dynamic default date 
 def create_input_element(param):
@@ -154,8 +132,7 @@ def handle_run_job(ack, body, respond):
             
             if has_file_params:
                 respond(f"📁 This job requires file uploads. Use one of these options:\n" +
-                f"• Upload files to this channel, then use: `/jenkins-file {job_name}`\n" +
-                f"• Web upload: https://db65-61-12-91-218.ngrok-free.app/upload/{job_name}")
+                f"• Upload files to this channel, then use: `/jenkins-file {job_name}`\n")
 
                 return
 
@@ -271,6 +248,7 @@ def run_jenkins_job(job_name, params, respond_func):
         respond_func(f"Error running job {job_name}: {str(e)}")
 
 
+# Add after existing imports
 def download_and_encode_file(file_url, token):
     """Download file from Slack and encode to base64"""
     headers = {'Authorization': f'Bearer {token}'}
@@ -326,44 +304,44 @@ def handle_file_jenkins_command(ack, respond, command, client):
     except Exception as e:
         respond(f"Error: {str(e)}")
 
-# Add file upload web interface
-@flask_app.route("/upload/<job_name>", methods=["GET", "POST"])
-def upload_files(job_name):
-    if request.method == "GET":
-        return render_template_string("""
-        <!DOCTYPE html>
-        <html>
-        <head><title>Upload Files for {{job_name}}</title></head>
-        <body>
-            <h2>Upload Files for Jenkins Job: {{job_name}}</h2>
-            <form method="POST" enctype="multipart/form-data">
-                <p>Excel File: <input type="file" name="excel_file" accept=".xlsx,.xls" required></p>
-                <p>JSON File: <input type="file" name="json_file" accept=".json" required></p>
-                <p><button type="submit">Trigger Job</button></p>
-            </form>
-        </body>
-        </html>
-        """, job_name=job_name)
+# # Add file upload web interface
+# @flask_app.route("/upload/<job_name>", methods=["GET", "POST"])
+# def upload_files(job_name):
+#     if request.method == "GET":
+#         return render_template_string("""
+#         <!DOCTYPE html>
+#         <html>
+#         <head><title>Upload Files for {{job_name}}</title></head>
+#         <body>
+#             <h2>Upload Files for Jenkins Job: {{job_name}}</h2>
+#             <form method="POST" enctype="multipart/form-data">
+#                 <p>Excel File: <input type="file" name="excel_file" accept=".xlsx,.xls" required></p>
+#                 <p>JSON File: <input type="file" name="json_file" accept=".json" required></p>
+#                 <p><button type="submit">Trigger Job</button></p>
+#             </form>
+#         </body>
+#         </html>
+#         """, job_name=job_name)
     
-    try:
-        # Process uploaded files
-        excel_file = request.files['excel_file']
-        json_file = request.files['json_file']
+#     try:
+#         # Process uploaded files
+#         excel_file = request.files['excel_file']
+#         json_file = request.files['json_file']
         
-        params = {
-            'INPUT_XLSX': base64.b64encode(excel_file.read()).decode(),
-            'SERVICE_ACCOUNT_JSON': base64.b64encode(json_file.read()).decode()
-        }
+#         params = {
+#             'INPUT_XLSX': base64.b64encode(excel_file.read()).decode(),
+#             'SERVICE_ACCOUNT_JSON': base64.b64encode(json_file.read()).decode()
+#         }
         
-        success = trigger_job_with_params(job_name, params)
+#         success = trigger_job_with_params(job_name, params)
         
-        if success:
-            return f"<h2>✅ Job {job_name} triggered successfully!</h2>"
-        else:
-            return f"<h2>❌ Failed to trigger job {job_name}</h2>"
+#         if success:
+#             return f"<h2>✅ Job {job_name} triggered successfully!</h2>"
+#         else:
+#             return f"<h2>❌ Failed to trigger job {job_name}</h2>"
             
-    except Exception as e:
-        return f"<h2>Error: {str(e)}</h2>"
+#     except Exception as e:
+#         return f"<h2>Error: {str(e)}</h2>"
 
 
 @flask_app.route("/slack/events", methods=["POST"])

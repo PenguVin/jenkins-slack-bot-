@@ -90,18 +90,6 @@ def trigger_job_with_params(job_name, params=None):
     
     return res.status_code == 201
 
-def download_and_encode_file(file_url, token):
-    """Download file from Slack and encode to base64"""
-    headers = {'Authorization': f'Bearer {token}'}
-    response = requests.get(file_url, headers=headers)
-    response.raise_for_status()
-    return base64.b64encode(response.content).decode()
-
-def get_last_build_console_output(job_name):
-    url = f"{JENKINS_URL}/job/{job_name}/lastBuild/consoleText"
-    res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
-    return res.text
-
 
 
 #google sheet ki jagah console output
@@ -174,20 +162,6 @@ def extract_result_from_console(console_output):
     
     return results if results else None
 
-def wait_for_build_to_complete(job_name, timeout=180, interval=5):
-    build_url = f"{JENKINS_URL}/job/{job_name}/lastBuild/api/json"
-    
-    for _ in range(int(timeout / interval)):
-        res = requests.get(build_url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
-        if res.status_code != 200:
-            time.sleep(interval)
-            continue
-        data = res.json()
-        if not data.get("building", True):
-            return data.get("number")
-        time.sleep(interval)
-    
-    return None
 
 def wait_for_specific_build_to_complete(job_name, build_number, timeout=180, interval=5):
     build_url = f"{JENKINS_URL}/job/{job_name}/{build_number}/api/json"
