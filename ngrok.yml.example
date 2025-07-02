@@ -1,0 +1,15 @@
+# ~/.config/ngrok/ngrok.yml
+
+
+version: "3"
+agent:
+    authtoken: your-auth-token
+
+tunnels:
+  slackbot:
+    addr: 3000
+    proto: http
+
+  jenkins:
+    addr: 8080
+    proto: http
