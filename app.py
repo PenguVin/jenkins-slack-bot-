@@ -14,7 +14,7 @@ from requests.auth import HTTPBasicAuth
 from jenkins_utils import (
     get_all_jobs, get_job_parameters, trigger_job_with_params,
     wait_for_build_to_complete, get_last_build_console_output,
-    extract_google_doc_link, wait_for_specific_build_to_complete,
+    extract_result_from_console, wait_for_specific_build_to_complete,
     get_specific_build_console_output
 )
 
@@ -219,13 +219,15 @@ def run_jenkins_job(job_name, params, respond_func):
         console_output = get_specific_build_console_output(job_name, build_number)
         
         # Extract Google Doc link
-        doc_link = extract_google_doc_link(console_output)
-        
-        if doc_link:
-            respond_func(f"✅ Job {job_name} completed!\n🔗 Google Doc: {doc_link}")
+        # Extract results from console output
+        results = extract_result_from_console(console_output)
+
+        if results:
+            result_text = f"✅ Job {job_name} completed!\n" + "\n".join(results)
+            respond_func(result_text)
         else:
-            respond_func(f"✅ Job {job_name} completed, but no Google Doc link found in console output.")
-            
+            respond_func(f"No Results found for job {job_name}. Please check the console output.")
+
     except Exception as e:
         respond_func(f"Error running job {job_name}: {str(e)}")
 

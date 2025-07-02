@@ -102,9 +102,77 @@ def get_last_build_console_output(job_name):
     res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
     return res.text
 
-def extract_google_doc_link(console_output):
-    match = re.search(r"https://docs\.google\.com/[^\s]+", console_output)
-    return match.group(0) if match else None
+
+
+#google sheet ki jagah console output
+def extract_result_from_console(console_output):
+    """Extract relevant results from console output dynamically"""
+    results = []
+    lines = console_output.split('\n')
+    
+    # Skip patterns
+    skip_patterns = [
+        r"^\[.*\]",  # [timestamp] messages
+        r"^Started by",
+        r"^Building",
+        r"^Finished:",
+        r"^Console output",
+        r"^\+",  # Shell command indicators
+        r"^>",   # Shell prompts
+        r"^Archiving",
+        r"^Recording",
+        r"^Running",  # Jenkins job messages
+        r"^Triggering",  # Trigger messages
+        r"^Checking out",  # SCM checkout messages
+        r"^Using strategy",  # SCM strategy messages
+        r"^No changes",  # SCM no changes messages
+        r"^Skipping",  # Skipping messages
+        r"^Obtained.*from git",  # Git checkout messages
+        r"^The recommended git tool",  # Git tool messages
+        r"^using credential",  # Credential messages
+        r"^Fetching.*from.*Git",  # Git fetch messages
+        r"^using GIT_ASKPASS",  # Git auth messages
+        r"^Commit message:",  # Git commit messages
+        r"^Defaulting to user installation",  # pip messages
+        r"^Requirement already satisfied:",  # pip requirement messages
+        r"^Copying input files",  # File copy messages
+        r"^Workspace contents:",  # Workspace listing
+        r"^total \d+",  # ls total line
+        r"^drwx",  # Directory listings
+        r"^-rw-",  # File listings
+        r"^/var/lib/jenkins/.*/site-packages/.*warning",  # Python warnings
+        r"^warn\(",  # Warning function calls
+        r"^Successfully converted.*\.xlsx to.*\.csv",  # File conversion messages
+        r"^Successfully processed.*\.csv",  # CSV processing messages
+        r"^All CSVs uploaded successfully"  # Upload completion messages
+    ]
+
+    
+    # Extract everything that doesn't match skip patterns
+    for line in lines:
+        line = line.strip()
+        if not line:  # Skip empty lines
+            continue
+            
+        # Check if line matches any skip pattern
+        should_skip = any(re.match(pattern, line, re.IGNORECASE) for pattern in skip_patterns)
+        
+        if not should_skip:
+            # Check if line contains Google Doc URL - format it nicely
+            if "docs.google.com" in line:
+                url_match = re.search(r"https://docs\.google\.com/[^\s]+", line)
+                if url_match:
+                    results.append(f"🔗 {line}")
+                else:
+                    results.append(f"📊 {line}")
+            else:
+                results.append(f"📊 {line}")
+    
+    # Success indicator
+    if "Finished: SUCCESS" in console_output:
+        results.append("✅ Build completed successfully")
+    
+    return results if results else None
 
 def wait_for_build_to_complete(job_name, timeout=180, interval=5):
     build_url = f"{JENKINS_URL}/job/{job_name}/lastBuild/api/json"
