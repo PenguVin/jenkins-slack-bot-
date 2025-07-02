@@ -164,9 +164,9 @@ def extract_result_from_console(console_output):
                 if url_match:
                     results.append(f"🔗 {line}")
                 else:
-                    results.append(f"📊 {line}")
+                    results.append(f"{line}")
             else:
-                results.append(f"📊 {line}")
+                results.append(f"{line}")
     
     # Success indicator
     if "Finished: SUCCESS" in console_output:

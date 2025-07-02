@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 import base64
 from flask import render_template_string
 from requests.auth import HTTPBasicAuth
-
-
+from datetime import datetime, timedelta
+import calendar
 
 from jenkins_utils import (
     get_all_jobs, get_job_parameters, trigger_job_with_params,
@@ -40,6 +40,28 @@ def is_date_parameter(param_name, param_description="", default_value=""):
     
     return False
 
+# def create_input_element(param):
+#     """Create appropriate input element based on parameter type"""
+#     if is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
+#         element = {
+#             "type": "datepicker",
+#             "action_id": param['name'],
+#             "placeholder": {"type": "plain_text", "text": "Select a date"}
+#         }
+        
+#         default_value = str(param.get('defaultValue', ''))
+#         if re.match(r'^\d{4}-\d{2}-\d{2}$', default_value):
+#             element["initial_date"] = default_value
+        
+#         return element
+#     else:
+#         return {
+#             "type": "plain_text_input",
+#             "action_id": param['name'],
+#             "initial_value": str(param.get('defaultValue', ''))
+#         }
+
+#Dynamic default date 
 def create_input_element(param):
     """Create appropriate input element based on parameter type"""
     if is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
@@ -49,10 +71,28 @@ def create_input_element(param):
             "placeholder": {"type": "plain_text", "text": "Select a date"}
         }
         
-        default_value = str(param.get('defaultValue', ''))
-        if re.match(r'^\d{4}-\d{2}-\d{2}$', default_value):
-            element["initial_date"] = default_value
+        # Dynamic date assignment based on parameter name
+        param_name_lower = param['name'].lower()
+        today = datetime.now()
         
+        if 'start' in param_name_lower:
+            # First day of previous month
+            first_day_prev_month = today.replace(day=1) - timedelta(days=1)
+            default_date = first_day_prev_month.replace(day=1).strftime('%Y-%m-%d')
+        elif 'end' in param_name_lower:
+            # Last day of previous month
+            first_day_prev_month = today.replace(day=1) - timedelta(days=1)
+            last_day_prev_month = calendar.monthrange(first_day_prev_month.year, first_day_prev_month.month)[1]
+            default_date = first_day_prev_month.replace(day=last_day_prev_month).strftime('%Y-%m-%d')
+        else:
+            # Use existing default or current date
+            default_value = str(param.get('defaultValue', ''))
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', default_value):
+                default_date = default_value
+            else:
+                default_date = today.strftime('%Y-%m-%d')
+        
+        element["initial_date"] = default_date
         return element
     else:
         return {
@@ -60,7 +100,6 @@ def create_input_element(param):
             "action_id": param['name'],
             "initial_value": str(param.get('defaultValue', ''))
         }
-
 
 # Initialize Flask app
 flask_app = Flask(__name__)
