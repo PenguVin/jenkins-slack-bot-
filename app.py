@@ -271,7 +271,6 @@ def run_jenkins_job(job_name, params, respond_func):
         respond_func(f"Error running job {job_name}: {str(e)}")
 
 
-# Add after existing imports
 def download_and_encode_file(file_url, token):
     """Download file from Slack and encode to base64"""
     headers = {'Authorization': f'Bearer {token}'}
