@@ -6,12 +6,12 @@ import time
 import re
 import base64
 
-load_dotenv()
+load_dotenv(override=True)
 
 JENKINS_URL = os.getenv("JENKINS_URL")
 JENKINS_USER = os.getenv("JENKINS_USER")
 JENKINS_API_TOKEN = os.getenv("JENKINS_API_TOKEN")
-
+print(f"JENKINS_URL: {JENKINS_URL}")
 def get_crumb():
     url = f"{JENKINS_URL}/crumbIssuer/api/json"
     res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
@@ -34,13 +34,10 @@ def get_job_parameters(job_name):
     data = res.json()
     
     parameters = []
-    
-    # Check both 'actions' and 'property' arrays
     for source in [data.get('actions', []), data.get('property', [])]:
         for item in source:
             if item.get('_class') == 'hudson.model.ParametersDefinitionProperty':
                 for param in item.get('parameterDefinitions', []):
-                    # Fix for file parameters - handle None defaultParameterValue
                     default_param_value = param.get('defaultParameterValue')
                     default_value = ''
                     if default_param_value and isinstance(default_param_value, dict):
@@ -58,110 +55,82 @@ def trigger_job_with_params(job_name, params=None):
     headers = get_crumb()
     if params:
         url = f"{JENKINS_URL}/job/{job_name}/buildWithParameters"
-        
-        # Handle file parameters - Jenkins expects multipart/form-data for files
-        files = {}
-        data = {}
+        files, data = {}, {}
         
         for key, value in params.items():
-            # Check if this looks like base64 encoded file content
             if isinstance(value, str) and len(value) > 1000 and value.replace('+', '').replace('/', '').replace('=', '').isalnum():
-                # This is likely a base64 encoded file
                 try:
                     file_content = base64.b64decode(value)
                     files[key] = ('file', file_content)
                 except:
-                    # If base64 decode fails, treat as regular parameter
                     data[key] = value
             else:
                 data[key] = value
         
-        if files:
-            # Use files parameter for multipart upload
-            res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
-                              headers=headers, data=data, files=files)
-        else:
-            # Regular form data
-            res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
-                              headers=headers, data=data)
+        res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), 
+                          headers=headers, data=data, files=files if files else None)
     else:
         url = f"{JENKINS_URL}/job/{job_name}/build"
         res = requests.post(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN), headers=headers)
     
     return res.status_code == 201
 
-
-
-#google sheet ki jagah console output
 def extract_result_from_console(console_output):
-    """Extract relevant results from console output dynamically"""
     results = []
     lines = console_output.split('\n')
     
-    # Skip patterns
     skip_patterns = [
-        r"^\[.*\]",  # [timestamp] messages
-        r"^Started by",
-        r"^Building",
-        r"^Finished:",
+        r"^\[.*\]", 
+        r"^Started by", 
+        r"^Building", 
+        r"^Finished:", 
         r"^Console output",
-        r"^\+",  # Shell command indicators
-        r"^>",   # Shell prompts
-        r"^Archiving",
-        r"^Recording",
-        r"^Running",  # Jenkins job messages
-        r"^Triggering",  # Trigger messages
-        r"^Checking out",  # SCM checkout messages
-        r"^Using strategy",  # SCM strategy messages
-        r"^No changes",  # SCM no changes messages
-        r"^Skipping",  # Skipping messages
-        r"^Obtained.*from git",  # Git checkout messages
-        r"^The recommended git tool",  # Git tool messages
-        r"^using credential",  # Credential messages
-        r"^Fetching.*from.*Git",  # Git fetch messages
-        r"^using GIT_ASKPASS",  # Git auth messages
-        r"^Commit message:",  # Git commit messages
-        r"^Defaulting to user installation",  # pip messages
-        r"^Requirement already satisfied:",  # pip requirement messages
-        r"^Copying input files",  # File copy messages
-        r"^Workspace contents:",  # Workspace listing
-        r"^total \d+",  # ls total line
-        r"^drwx",  # Directory listings
-        r"^-rw-",  # File listings
-        r"^/var/lib/jenkins/.*/site-packages/.*warning",  # Python warnings
-        r"^warn\(",  # Warning function calls
-        r"^Successfully converted.*\.xlsx to.*\.csv",  # File conversion messages
-        r"^Successfully processed.*\.csv",  # CSV processing messages
-        r"^All CSVs uploaded successfully"  # Upload completion messages
+        r"^\+", 
+        r"^>", 
+        r"^Archiving", 
+        r"^Recording", 
+        r"^Running", 
+        r"^Triggering",
+        r"^Checking out", 
+        r"^Using strategy", 
+        r"^No changes", 
+        r"^Skipping",
+        r"^Obtained.*from git", 
+        r"^The recommended git tool", 
+        r"^using credential",
+        r"^Fetching.*from.*Git", 
+        r"^using GIT_ASKPASS", r"^Commit message:",
+        r"^Defaulting to user installation", 
+        r"^Requirement already satisfied:",
+        r"^Copying input files", 
+        r"^Workspace contents:", 
+        r"^total \d+",
+        r"^drwx", 
+        r"^-rw-", 
+        r"^/var/lib/jenkins/.*/site-packages/.*warning",
+        r"^warn\(", 
+        r"^Successfully converted.*\.xlsx to.*\.csv",
+        r"^Successfully processed.*\.csv", 
+        r"^All CSVs uploaded successfully"
     ]
-
     
-    # Extract everything that doesn't match skip patterns
     for line in lines:
         line = line.strip()
-        if not line:  # Skip empty lines
+        if not line:
             continue
             
-        # Check if line matches any skip pattern
         should_skip = any(re.match(pattern, line, re.IGNORECASE) for pattern in skip_patterns)
         
         if not should_skip:
-            # Check if line contains Google Doc URL - format it nicely
             if "docs.google.com" in line:
-                url_match = re.search(r"https://docs\.google\.com/[^\s]+", line)
-                if url_match:
-                    results.append(f"🔗 {line}")
-                else:
-                    results.append(f"{line}")
+                results.append(f"🔗 {line}")
             else:
-                results.append(f"{line}")
+                results.append(line)
     
-    # Success indicator
     if "Finished: SUCCESS" in console_output:
         results.append("✅ Build completed successfully")
     
     return results if results else None
-
 
 def wait_for_specific_build_to_complete(job_name, build_number, timeout=180, interval=5):
     build_url = f"{JENKINS_URL}/job/{job_name}/{build_number}/api/json"
@@ -182,4 +151,3 @@ def get_specific_build_console_output(job_name, build_number):
     url = f"{JENKINS_URL}/job/{job_name}/{build_number}/consoleText"
     res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
     return res.text
-
