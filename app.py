@@ -124,8 +124,8 @@ def handle_jenkins_command(ack, respond, command, client):
             }
             
             respond(f"🚀 Starting Jenkins job: {job_name} with uploaded files...")
-            user_id = command['user_id']
-            run_jenkins_job(job_name, file_params, lambda msg: client.chat_postMessage(channel=user_id, text=msg))
+            channel_id = command['channel_id']
+            run_jenkins_job(job_name, file_params, lambda msg: client.chat_postMessage(channel=channel_id, text=msg))
             
         elif params:
             # Show parameter form for non-file parameters
@@ -189,6 +189,7 @@ def handle_run_job(ack, body, respond):
                     "callback_id": f"submit_job_{job_name}",
                     "title": {"type": "plain_text", "text": "Job Parameters"},
                     "submit": {"type": "plain_text", "text": "Run Job"},
+                    "private_metadata": body["channel"]["id"],  # Store original channel
                     "blocks": modal_blocks
                 }
             )
@@ -210,7 +211,8 @@ def handle_job_submission(ack, body, view):
             action_data = list(block.values())[0]
             params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
 
-    channel_id = body["user"]["id"]
+    # Use the original channel stored in private_metadata
+    channel_id = view.get("private_metadata") or body["user"]["id"]
     slack_app.client.chat_postMessage(channel=channel_id, text=f"Starting Jenkins job: {job_name}...")
     
     run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg))

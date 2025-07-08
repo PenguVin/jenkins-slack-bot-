@@ -11,7 +11,6 @@ load_dotenv(override=True)
 JENKINS_URL = os.getenv("JENKINS_URL")
 JENKINS_USER = os.getenv("JENKINS_USER")
 JENKINS_API_TOKEN = os.getenv("JENKINS_API_TOKEN")
-print(f"JENKINS_URL: {JENKINS_URL}")
 def get_crumb():
     url = f"{JENKINS_URL}/crumbIssuer/api/json"
     res = requests.get(url, auth=HTTPBasicAuth(JENKINS_USER, JENKINS_API_TOKEN))
