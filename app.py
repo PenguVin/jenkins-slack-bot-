@@ -32,7 +32,7 @@ def log_jenkins_invocation(user_id, job_name):
         email = user_info['user']['profile'].get('email', 'N/A')
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
         
-        log_message = f"<@{user_id}> invoked jenkins-bot for job {job_name} on {timestamp} (Email: {email})"
+        log_message = f"<@{user_id}> invoked *jenkins-bot* for job `{job_name}` on {timestamp} (Email: {email})"
         slack_app.client.chat_postMessage(channel=LOGGING_CHANNEL_ID, text=log_message,mrkdwn=True)
     except Exception as e:
         print(f"Failed to log invocation: {str(e)}")
