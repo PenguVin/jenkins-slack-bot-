@@ -23,6 +23,20 @@ slack_app = App(
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
 )
 
+LOGGING_CHANNEL_ID = "C095E03Q5MW"
+
+def log_jenkins_invocation(user_id, job_name):
+    try:
+        user_info = slack_app.client.users_info(user=user_id)
+        display_name = user_info['user']['profile'].get('display_name') or user_info['user']['profile'].get('real_name') or user_info['user']['name']
+        email = user_info['user']['profile'].get('email', 'N/A')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        log_message = f"<@{user_id}> invoked jenkins-bot for job {job_name} on {timestamp} (Email: {email})"
+        slack_app.client.chat_postMessage(channel=LOGGING_CHANNEL_ID, text=log_message,mrkdwn=True)
+    except Exception as e:
+        print(f"Failed to log invocation: {str(e)}")
+
 def is_date_parameter(param_name, param_description="", default_value=""):
     date_indicators = ['date', 'time', 'day', 'month', 'year', 'yyyy-mm-dd', 'yyyy/mm/dd']
     return (any(indicator in param_name.lower() for indicator in date_indicators) or
@@ -71,6 +85,7 @@ def handle_jenkins_command(ack, respond, command, client):
     ack()
     
     job_name = command['text'].strip()
+    user_id = command['user_id']
     
     # If no job name provided, show job list
     if not job_name:
@@ -125,7 +140,7 @@ def handle_jenkins_command(ack, respond, command, client):
             
             respond(f"🚀 Starting Jenkins job: {job_name} with uploaded files...")
             channel_id = command['channel_id']
-            run_jenkins_job(job_name, file_params, lambda msg: client.chat_postMessage(channel=channel_id, text=msg))
+            run_jenkins_job(job_name, file_params, lambda msg: client.chat_postMessage(channel=channel_id, text=msg), user_id)
             
         elif params:
             # Show parameter form for non-file parameters
@@ -146,14 +161,14 @@ def handle_jenkins_command(ack, respond, command, client):
                     "callback_id": f"submit_job_{job_name}",
                     "title": {"type": "plain_text", "text": "Job Parameters"},
                     "submit": {"type": "plain_text", "text": "Run Job"},
+                    "private_metadata": user_id,
                     "blocks": modal_blocks
                 }
             )
         else:
             # Run job without parameters
             respond(f"🚀 Starting Jenkins job: {job_name}...")
-            user_id = command['user_id']
-            run_jenkins_job(job_name, {}, lambda msg: client.chat_postMessage(channel=user_id, text=msg))
+            run_jenkins_job(job_name, {}, lambda msg: client.chat_postMessage(channel=user_id, text=msg), user_id)
             
     except Exception as e:
         respond(f"Error: {str(e)}")
@@ -162,6 +177,7 @@ def handle_jenkins_command(ack, respond, command, client):
 def handle_run_job(ack, body, respond):
     ack()
     job_name = body["actions"][0]["value"]
+    user_id = body["user"]["id"]
     
     try:
         params = get_job_parameters(job_name)
@@ -189,12 +205,12 @@ def handle_run_job(ack, body, respond):
                     "callback_id": f"submit_job_{job_name}",
                     "title": {"type": "plain_text", "text": "Job Parameters"},
                     "submit": {"type": "plain_text", "text": "Run Job"},
-                    "private_metadata": body["channel"]["id"],  # Store original channel
+                    "private_metadata": f"{body['channel']['id']}|{user_id}",
                     "blocks": modal_blocks
                 }
             )
         else:
-            run_jenkins_job(job_name, {}, respond)
+            run_jenkins_job(job_name, {}, respond, user_id)
             
     except Exception as e:
         respond(f"Error: {str(e)}")
@@ -211,13 +227,18 @@ def handle_job_submission(ack, body, view):
             action_data = list(block.values())[0]
             params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
 
-    # Use the original channel stored in private_metadata
-    channel_id = view.get("private_metadata") or body["user"]["id"]
-    slack_app.client.chat_postMessage(channel=channel_id, text=f"Starting Jenkins job: {job_name}...")
+    # Extract channel and user from private_metadata
+    metadata = view.get("private_metadata", "")
+    if "|" in metadata:
+        channel_id, user_id = metadata.split("|", 1)
+    else:
+        channel_id = body["user"]["id"]
+        user_id = body["user"]["id"]
     
-    run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg))
+    slack_app.client.chat_postMessage(channel=channel_id, text=f"Starting Jenkins job: {job_name}...")
+    run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
-def run_jenkins_job(job_name, params, respond_func):
+def run_jenkins_job(job_name, params, respond_func, user_id=None):
     try:
         current_builds_url = f"{os.getenv('JENKINS_URL')}/job/{job_name}/api/json"
         response = requests.get(current_builds_url, auth=HTTPBasicAuth(os.getenv('JENKINS_USER'), os.getenv('JENKINS_API_TOKEN')))
@@ -227,6 +248,10 @@ def run_jenkins_job(job_name, params, respond_func):
         if not success:
             respond_func(f"Failed to trigger job: {job_name}")
             return
+        
+        # Log after successful job triggering
+        if user_id:
+            log_jenkins_invocation(user_id, job_name)
         
         respond_func(f"Job {job_name} triggered successfully. Waiting for completion...")
         
