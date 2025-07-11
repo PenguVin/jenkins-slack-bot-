@@ -33,7 +33,7 @@ def log_jenkins_invocation(user_id, job_name):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
         
         log_message = f"<@{user_id}> invoked *jenkins-bot* for job `{job_name}` on {timestamp} (Email: {email})"
-        slack_app.client.chat_postMessage(channel=LOGGING_CHANNEL_ID, text=log_message,mrkdwn=True)
+        slack_app.client.chat_postMessage(channel=LOGGING_CHANNEL_ID, text=log_message, mrkdwn=True)
     except Exception as e:
         print(f"Failed to log invocation: {str(e)}")
 
@@ -44,7 +44,14 @@ def is_date_parameter(param_name, param_description="", default_value=""):
             re.match(r'^\d{4}-\d{2}-\d{2}$', str(default_value)))
 
 def create_input_element(param):
-    if is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
+    if 'File' in param.get('type', ''):
+        return {
+            "type": "file_input",
+            "action_id": param['name'],
+            "filetypes": ["xlsx", "xls", "json", "csv", "txt"],
+            "max_files": 1
+        }
+    elif is_date_parameter(param['name'], param.get('description', ''), param.get('defaultValue', '')):
         today = datetime.now()
         param_name_lower = param['name'].lower()
         
@@ -81,114 +88,89 @@ flask_app = Flask(__name__)
 handler = SlackRequestHandler(slack_app)
 
 @slack_app.command("/jenkins")
-def handle_jenkins_command(ack, respond, command, client):
+def handle_jenkins_command(ack, respond, command):
     ack()
     
-    job_name = command['text'].strip()
-    user_id = command['user_id']
-    
-    # If no job name provided, show job list
-    if not job_name:
-        try:
-            jobs = get_all_jobs()
-            if not jobs:
-                respond("No Jenkins jobs found.")
-                return
-            
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*Available Jenkins Jobs:*"}}]
-            
-            for job in jobs:
-                blocks.append({
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"• {job}"},
-                    "accessory": {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Run Job"},
-                        "action_id": f"run_job_{job}",
-                        "value": job
-                    }
-                })
-            
-            respond(blocks=blocks)
-        except Exception as e:
-            respond(f"Error fetching jobs: {str(e)}")
-        return
-    
-    # Job name provided - run directly with file upload support
     try:
-        params = get_job_parameters(job_name)
-        has_file_params = any('File' in param.get('type', '') for param in params)
-        
-        if has_file_params:
-            # Get recent files from channel
-            channel_id = command['channel_id']
-            files_response = client.files_list(channel=channel_id, count=10)
-            files = files_response['files']
-            
-            if len(files) < 2:
-                respond(f"📁 Job `{job_name}` requires file uploads.\nPlease upload 2 files to this channel first, then run: `/jenkins {job_name}`")
-                return
-            
-            # Use the 2 most recent files
-            excel_file, json_file = files[0], files[1]
-            token = os.environ.get("SLACK_BOT_TOKEN")
-            
-            file_params = {
-                'INPUT_XLSX': download_and_encode_file(excel_file['url_private'], token),
-                'SERVICE_ACCOUNT_JSON': download_and_encode_file(json_file['url_private'], token)
-            }
-            
-            respond(f"🚀 Starting Jenkins job: {job_name} with uploaded files...")
-            channel_id = command['channel_id']
-            run_jenkins_job(job_name, file_params, lambda msg: client.chat_postMessage(channel=channel_id, text=msg), user_id)
-            
-        elif params:
-            # Show parameter form for non-file parameters
-            modal_blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}}]
-            
-            for param in params:
-                modal_blocks.append({
-                    "type": "input",
-                    "block_id": f"param_{param['name']}",
-                    "element": create_input_element(param),
-                    "label": {"type": "plain_text", "text": f"{param['name']} ({param['type']})"}
-                })
-            
-            slack_app.client.views_open(
-                trigger_id=command['trigger_id'],
-                view={
-                    "type": "modal",
-                    "callback_id": f"submit_job_{job_name}",
-                    "title": {"type": "plain_text", "text": "Job Parameters"},
-                    "submit": {"type": "plain_text", "text": "Run Job"},
-                    "private_metadata": user_id,
-                    "blocks": modal_blocks
-                }
-            )
-        else:
-            # Run job without parameters
-            respond(f"🚀 Starting Jenkins job: {job_name}...")
-            run_jenkins_job(job_name, {}, lambda msg: client.chat_postMessage(channel=user_id, text=msg), user_id)
-            
-    except Exception as e:
-        respond(f"Error: {str(e)}")
-
-@slack_app.action(re.compile(r"run_job_.*"))
-def handle_run_job(ack, body, respond):
-    ack()
-    job_name = body["actions"][0]["value"]
-    user_id = body["user"]["id"]
-    
-    try:
-        params = get_job_parameters(job_name)
-        has_file_params = any('File' in param.get('type', '') for param in params)
-        
-        if has_file_params:
-            respond(f"📁 Job `{job_name}` requires file uploads.\nUpload files to this channel, then use: `/jenkins {job_name}`")
+        jobs = get_all_jobs()
+        if not jobs:
+            respond("No Jenkins jobs found.")
             return
+        
+        # Create job options for dropdown
+        job_options = [{"text": {"type": "plain_text", "text": job}, "value": job} for job in jobs]
+        
+        blocks = [
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Select Jenkins Job:*"},
+                "accessory": {
+                    "type": "static_select",
+                    "action_id": "job_selected",
+                    "placeholder": {"type": "plain_text", "text": "Choose a job..."},
+                    "options": job_options
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "❌ Cancel"},
+                        "action_id": "cancel_operation",
+                        "style": "danger"
+                    }
+                ]
+            }
+        ]
+        
+        respond(blocks=blocks)
+        
+    except Exception as e:
+        respond(f"Error fetching jobs: {str(e)}")
 
-        if params:
-            modal_blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}}]
+@slack_app.action("job_selected")
+def handle_job_selection(ack, body, respond):
+    ack()
+    
+    job_name = body["actions"][0]["selected_option"]["value"]
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    
+    try:
+        params = get_job_parameters(job_name)
+        
+        if not params:
+            # No parameters - show run button
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*Selected Job:* `{job_name}`\n_No parameters required_"}
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "🚀 Run Job"},
+                            "action_id": f"run_job_direct_{job_name}",
+                            "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Cancel"},
+                            "action_id": "cancel_operation",
+                            "style": "danger"
+                        }
+                    ]
+                }
+            ]
+            respond(blocks=blocks, replace_original=True)
+        else:
+            # Has parameters - open modal
+            modal_blocks = [
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}}
+            ]
             
             for param in params:
                 modal_blocks.append({
@@ -205,28 +187,59 @@ def handle_run_job(ack, body, respond):
                     "callback_id": f"submit_job_{job_name}",
                     "title": {"type": "plain_text", "text": "Job Parameters"},
                     "submit": {"type": "plain_text", "text": "Run Job"},
-                    "private_metadata": f"{body['channel']['id']}|{user_id}",
+                    "close": {"type": "plain_text", "text": "Cancel"},
+                    "private_metadata": f"{channel_id}|{user_id}",
                     "blocks": modal_blocks
                 }
             )
-        else:
-            run_jenkins_job(job_name, {}, respond, user_id)
             
     except Exception as e:
         respond(f"Error: {str(e)}")
 
+@slack_app.action(re.compile(r"run_job_direct_.*"))
+def handle_direct_job_run(ack, body, respond):
+    ack()
+    
+    job_name = body["actions"][0]["action_id"].replace("run_job_direct_", "")
+    user_id = body["user"]["id"]
+    channel_id = body["channel"]["id"]
+    
+    respond("🚀 Starting Jenkins job...", replace_original=True)
+    run_jenkins_job(job_name, {}, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
+
+@slack_app.action("cancel_operation")
+def handle_cancel(ack, body, respond):
+    ack()
+    respond("❌ Operation cancelled.", replace_original=True)
+
 @slack_app.view(re.compile(r"submit_job_.*"))
 def handle_job_submission(ack, body, view):
     ack()
+    
     job_name = body["view"]["callback_id"].replace("submit_job_", "")
     
     params = {}
+    file_params = {}
+    
     for block_id, block in view["state"]["values"].items():
         if block_id.startswith("param_"):
             param_name = block_id.replace("param_", "")
             action_data = list(block.values())[0]
-            params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
-
+            
+            # Handle file inputs
+            if "files" in action_data:
+                files = action_data["files"]
+                if files:
+                    file_info = files[0]  # Take first file
+                    token = os.environ.get("SLACK_BOT_TOKEN")
+                    file_params[param_name] = download_and_encode_file(file_info["url_private"], token)
+            else:
+                # Handle regular inputs
+                params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
+    
+    # Combine regular and file parameters
+    all_params = {**params, **file_params}
+    
     # Extract channel and user from private_metadata
     metadata = view.get("private_metadata", "")
     if "|" in metadata:
@@ -235,8 +248,8 @@ def handle_job_submission(ack, body, view):
         channel_id = body["user"]["id"]
         user_id = body["user"]["id"]
     
-    slack_app.client.chat_postMessage(channel=channel_id, text=f"Starting Jenkins job: {job_name}...")
-    run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
+    slack_app.client.chat_postMessage(channel=channel_id, text=f"🚀 Starting Jenkins job: {job_name}...")
+    run_jenkins_job(job_name, all_params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
 def run_jenkins_job(job_name, params, respond_func, user_id=None):
     try:
@@ -249,7 +262,6 @@ def run_jenkins_job(job_name, params, respond_func, user_id=None):
             respond_func(f"Failed to trigger job: {job_name}")
             return
         
-        # Log after successful job triggering
         if user_id:
             log_jenkins_invocation(user_id, job_name)
         
