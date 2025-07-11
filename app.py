@@ -87,6 +87,8 @@ def download_and_encode_file(file_url, token):
 flask_app = Flask(__name__)
 handler = SlackRequestHandler(slack_app)
 
+message_info = {}  # global handler for message info
+
 @slack_app.command("/jenkins")
 def handle_jenkins_command(ack, respond, command):
     ack()
@@ -167,7 +169,12 @@ def handle_job_selection(ack, body, respond):
             ]
             respond(blocks=blocks, replace_original=True)
         else:
-            # Has parameters - open modal
+            # Has parameters - show confirmation and open modal
+            user_info = slack_app.client.users_info(user=user_id)
+            
+            # Replace original message with confirmation
+            respond(f"<@{user_id}> invoked *jenkins-bot* for job `{job_name}`", replace_original=True)
+            # Open modal for parameters
             modal_blocks = [
                 {"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}}
             ]
@@ -204,12 +211,22 @@ def handle_direct_job_run(ack, body, respond):
     user_id = body["user"]["id"]
     channel_id = body["channel"]["id"]
     
-    respond("🚀 Starting Jenkins job...", replace_original=True)
+    # Show confirmation message
+    user_info = slack_app.client.users_info(user=user_id)
+    display_name = user_info['user']['profile'].get('display_name') or user_info['user']['profile'].get('real_name') or user_info['user']['name']
+    respond(f"✅ {display_name} triggered Jenkins job `{job_name}`", replace_original=True)
+    
     run_jenkins_job(job_name, {}, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
 @slack_app.action("cancel_operation")
 def handle_cancel(ack, body, respond):
     ack()
+    user_id = body["user"]["id"]
+    
+    # Clean up stored message info
+    if user_id in message_info:
+        del message_info[user_id]
+    
     respond("❌ Operation cancelled.", replace_original=True)
 
 @slack_app.view(re.compile(r"submit_job_.*"))
@@ -248,8 +265,10 @@ def handle_job_submission(ack, body, view):
         channel_id = body["user"]["id"]
         user_id = body["user"]["id"]
     
-    slack_app.client.chat_postMessage(channel=channel_id, text=f"🚀 Starting Jenkins job: {job_name}...")
+    # Don't update original message here - it was already updated
     run_jenkins_job(job_name, all_params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
+
+
 
 def run_jenkins_job(job_name, params, respond_func, user_id=None):
     try:
