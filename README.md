@@ -1,6 +1,6 @@
 # Jenkins Slack Bot
 
-A Slack bot that integrates with Jenkins to list jobs, handle parameters, and extract Google Doc links from console output.
+A Slack bot that integrates with Jenkins to list jobs, handle parameters with smart UI elements, and extract meaningful results from console output.
 
 ## Setup Instructions
 
@@ -15,6 +15,8 @@ A Slack bot that integrates with Jenkins to list jobs, handle parameters, and ex
   - `chat:write`
   - `commands`
   - `im:write`
+  - `files:read`
+  - `users:read`
 - Install app to workspace and copy the Bot User OAuth Token
 
 #### Slash Commands:
@@ -73,14 +75,25 @@ python app.py
 ## Usage
 
 1. Type `/jenkins` in any Slack channel
-2. Click "Run Job" button for any job
-3. Fill parameters if required
-4. Bot will show Google Doc link from console output
+2. Select a job from the dropdown menu
+3. For parameterized jobs:
+   - Fill parameters in the modal dialog
+   - Supports text, date, choice, boolean, and file parameters
+   - Smart date defaults (previous month start/end)
+4. Bot monitors job execution and shows results
+5. Extracts meaningful output and Google Doc links
 
 ## Features
 
-- ✅ List all Jenkins jobs
-- ✅ Handle parameterized jobs
-- ✅ Extract Google Doc links from console output
-- ✅ Real-time job status updates
+- ✅ Interactive job selection with dropdown
+- ✅ Smart parameter handling:
+  - Text inputs with default values
+  - Date pickers with intelligent defaults
+  - Choice dropdowns
+  - Boolean checkboxes
+  - File upload support
+- ✅ Real-time build monitoring
+- ✅ Console output filtering and result extraction
+- ✅ User activity logging
 - ✅ Error handling and timeouts
+- ✅ CSRF protection for Jenkins API
