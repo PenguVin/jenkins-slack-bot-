@@ -213,10 +213,23 @@ def handle_job_selection(ack, body, respond):
         else:
             respond(f"<@{user_id}> invoked *jenkins-bot* for job `{job_name}`", replace_original=True)
             
+            # Get user display name
+            user_display_name = get_user_display_name(user_id)
+            
             modal_blocks = [
-                {"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}}
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"*Configure parameters for {job_name}:*"}},
+                
+                # Non-editable Slack user display
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"🔒 *Triggered by:* {user_display_name}"}
+                },
+                
+                # Add divider for visual separation
+                {"type": "divider"}
             ]
             
+            # Add regular job parameters
             for param in params:
                 modal_blocks.append({
                     "type": "input",
@@ -257,7 +270,9 @@ def handle_direct_job_run(ack, body, respond):
     display_name = get_user_display_name(user_id)
     respond(f"✅ {display_name} triggered Jenkins job `{job_name}`", replace_original=True)
     
-    run_jenkins_job(job_name, {}, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
+    # Add SLACK_USER parameter for direct runs too
+    params = {"SLACK_USER": display_name}
+    run_jenkins_job(job_name, params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
 @slack_app.action("cancel_operation")
 def handle_cancel(ack, body, respond):
@@ -300,6 +315,10 @@ def handle_job_submission(ack, body, view):
                 params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
     
     all_params = {**params, **file_params}
+    
+    # Always add the Slack user (since it's not in the form anymore)
+    user_display_name = get_user_display_name(user_id)
+    all_params["SLACK_USER"] = user_display_name
     
     run_jenkins_job(job_name, all_params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
