@@ -1,0 +1,21 @@
+{
+  "U0934GG9HC2": {
+    "name": "PanduRanga",
+    "allowed_jobs": ["day-count", "jenkins-pipeline", "job2", "test-job"],
+    "role": "admin"
+  },
+  "U0956MZKP6D": {
+    "name": "Aryan Kulshrestha", 
+    "allowed_jobs": ["day-count", "job2"],
+    "role": "developer"
+  },
+ "U095GAE6E9Z": {
+    "name": "ViranshBhardwaj",
+    "allowed_jobs": ["test-job"],
+    "role": "admin"
+  },
+  "default": {
+    "allowed_jobs": [],
+    "role": "guest"
+  }
+}

@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from flask import Flask, request
 import base64
 from slack_bolt import App
@@ -22,6 +23,7 @@ slack_app = App(
 )
 
 LOGGING_CHANNEL_ID = "C095E03Q5MW"
+USER_ACCESS_FILE = 'user_access.json'
 
 def get_user_display_name(user_id):
     """Get user display name with fallback"""
@@ -41,6 +43,32 @@ def log_jenkins_invocation(user_id, job_name):
         slack_app.client.chat_postMessage(channel=LOGGING_CHANNEL_ID, text=log_message, mrkdwn=True)
     except Exception as e:
         print(f"Failed to log invocation: {str(e)}")
+
+def load_user_access():
+    """Load user access configuration"""
+    try:
+        with open(USER_ACCESS_FILE, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"default": {"allowed_jobs": [], "role": "guest"}}
+
+def get_user_allowed_jobs(user_id):
+    """Get jobs allowed for specific user"""
+    access_config = load_user_access()
+    user_config = access_config.get(user_id, access_config.get("default", {}))
+    return user_config.get("allowed_jobs", [])
+
+def filter_jobs_for_user(all_jobs, user_id):
+    """Filter jobs based on user access"""
+    allowed_jobs = get_user_allowed_jobs(user_id)
+    if not allowed_jobs:
+        return []
+    return [job for job in all_jobs if job in allowed_jobs]
+
+def validate_user_job_access(user_id, job_name):
+    """Validate if user has access to specific job"""
+    allowed_jobs = get_user_allowed_jobs(user_id)
+    return job_name in allowed_jobs
 
 def create_input_element(param):
     param_type = param.get('type', '')
@@ -100,18 +128,22 @@ handler = SlackRequestHandler(slack_app)
 def handle_jenkins_command(ack, respond, command):
     ack()
     
+    user_id = command['user_id']
+    
     try:
-        jobs = get_all_jobs()
-        if not jobs:
-            respond("No Jenkins jobs found.")
+        all_jobs = get_all_jobs()
+        user_jobs = filter_jobs_for_user(all_jobs, user_id)
+        
+        if not user_jobs:
+            respond("❌ You don't have access to any Jenkins jobs.")
             return
         
-        job_options = [{"text": {"type": "plain_text", "text": job}, "value": job} for job in jobs]
+        job_options = [{"text": {"type": "plain_text", "text": job}, "value": job} for job in user_jobs]
         
         blocks = [
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "*Select Jenkins Job:*"},
+                "text": {"type": "mrkdwn", "text": f"*Select Jenkins Job:* ({len(user_jobs)} available)"},
                 "accessory": {
                     "type": "static_select",
                     "action_id": "job_selected",
@@ -144,6 +176,11 @@ def handle_job_selection(ack, body, respond):
     job_name = body["actions"][0]["selected_option"]["value"]
     user_id = body["user"]["id"]
     channel_id = body["channel"]["id"]
+    
+    # Validate user access
+    if not validate_user_job_access(user_id, job_name):
+        respond("❌ Access denied for this job.", replace_original=True)
+        return
     
     try:
         params = get_job_parameters(job_name)
@@ -212,6 +249,11 @@ def handle_direct_job_run(ack, body, respond):
     user_id = body["user"]["id"]
     channel_id = body["channel"]["id"]
     
+    # Validate user access
+    if not validate_user_job_access(user_id, job_name):
+        respond("❌ Access denied for this job.", replace_original=True)
+        return
+    
     display_name = get_user_display_name(user_id)
     respond(f"✅ {display_name} triggered Jenkins job `{job_name}`", replace_original=True)
     
@@ -227,6 +269,18 @@ def handle_job_submission(ack, body, view):
     ack()
     
     job_name = body["view"]["callback_id"].replace("submit_job_", "")
+    
+    # Extract user from private_metadata
+    metadata = view.get("private_metadata", "")
+    if "|" in metadata:
+        channel_id, user_id = metadata.split("|", 1)
+    else:
+        channel_id = body["user"]["id"]
+        user_id = body["user"]["id"]
+    
+    # Validate user access
+    if not validate_user_job_access(user_id, job_name):
+        return  # Modal will close, no response needed
     
     params = {}
     file_params = {}
@@ -246,13 +300,6 @@ def handle_job_submission(ack, body, view):
                 params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
     
     all_params = {**params, **file_params}
-    
-    metadata = view.get("private_metadata", "")
-    if "|" in metadata:
-        channel_id, user_id = metadata.split("|", 1)
-    else:
-        channel_id = body["user"]["id"]
-        user_id = body["user"]["id"]
     
     run_jenkins_job(job_name, all_params, lambda msg: slack_app.client.chat_postMessage(channel=channel_id, text=msg), user_id)
 
