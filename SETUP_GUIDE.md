@@ -24,6 +24,8 @@
    - `chat:write` - Send messages
    - `commands` - Use slash commands
    - `im:write` - Send direct messages
+   - `files:read` - Read uploaded files
+   - `users:read` - Get user information for logging
 
 #### Step 3: Install App
 1. Click **"Install to Workspace"**
@@ -123,11 +125,14 @@ ngrok http 3000
 ## 🎯 Usage
 
 1. In any Slack channel, type: `/jenkins`
-2. Bot shows list of available Jenkins jobs
-3. Click **"Run Job"** button
-4. If job has parameters, fill the form
-5. Bot triggers job and waits for completion
-6. Bot extracts and shows Google Doc link from console output
+2. Select a job from the dropdown menu
+3. For jobs without parameters: Click **"🚀 Run Job"** button
+4. For parameterized jobs:
+   - Fill parameters in the modal dialog
+   - Supports text inputs, date pickers, dropdowns, checkboxes, and file uploads
+   - Date parameters get smart defaults (previous month start/end)
+5. Bot triggers job and monitors execution
+6. Bot shows filtered results and extracts Google Doc links
 
 ## 🔍 Troubleshooting
 
