@@ -45,6 +45,31 @@ def log_jenkins_invocation(user_id, job_name):
 def create_input_element(param):
     param_type = param.get('type', '')
     param_name = param['name']
+    print(f"DEBUG: Parameter {param_name} - Type: {param_type}, Full param: {param}")
+
+    if 'ChoiceParameterDefinition' in param_type:
+        choices=param.get('choices',[])
+        if choices:
+            return {
+                "type": "static_select",
+                "action_id": param_name,
+                "placeholder": {"type": "plain_text", "text": "Select an option"},
+                "options": [
+                    {"text": {"type": "plain_text", "text": choice}, "value": choice}
+                    for choice in choices
+                ],
+                "initial_option": {"text": {"type": "plain_text", "text": choices[0]}, "value": choices[0]}
+            }
+        
+    if 'BooleanParameterDefinition' in param_type or 'Checkbox' in param_type:
+        return {
+            "type": "checkboxes",
+            "action_id": param_name,
+            "options": [
+                {"text": {"type": "plain_text", "text": "True"}, "value": "true"}
+            ],
+            "initial_options": [{"text": {"type": "plain_text", "text": "True"}, "value": "true"}] if param.get('defaultValue') else []
+        }
     
     if 'File' in param_type:
         return {
@@ -242,9 +267,13 @@ def handle_job_submission(ack, body, view):
                     file_info = files[0]
                     token = os.environ.get("SLACK_BOT_TOKEN")
                     file_params[param_name] = download_and_encode_file(file_info["url_private"], token)
+            elif "selected_option" in action_data:  # Handle choice parameters
+                params[param_name] = action_data["selected_option"]["value"]
+            elif "selected_options" in action_data:  # Handle checkbox parameters
+                params[param_name] = "true" if action_data["selected_options"] else "false"
             else:
                 params[param_name] = action_data.get("value") or action_data.get("selected_date", "")
-    
+  
     all_params = {**params, **file_params}
     
     metadata = view.get("private_metadata", "")

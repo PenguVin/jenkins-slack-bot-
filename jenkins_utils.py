@@ -41,13 +41,20 @@ def get_job_parameters(job_name):
                 default_param_value = param.get('defaultParameterValue')
                 default_value = default_param_value.get('value', '') if default_param_value and isinstance(default_param_value, dict) else ''
                 
-                parameters.append({
+                param_info = {
                     'name': param['name'],
                     'type': param.get('type', 'StringParameterDefinition'),
                     'description': param.get('description', ''),
                     'defaultValue': default_value
-                })
+                }
+                
+                # Add choices for ChoiceParameterDefinition
+                if param.get('type') == 'ChoiceParameterDefinition':
+                    param_info['choices'] = param.get('choices', [])
+                
+                parameters.append(param_info)
     return parameters
+
 
 def trigger_job_with_params(job_name, params=None):
     """Trigger Jenkins job with optional parameters"""
